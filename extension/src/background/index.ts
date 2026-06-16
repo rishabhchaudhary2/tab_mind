@@ -10,3 +10,4 @@ chrome.sidePanel
 chrome.tabs.onRemoved.addListener((tabId) => {
     console.log(`Tab ${tabId} was closed.`);
 });
+

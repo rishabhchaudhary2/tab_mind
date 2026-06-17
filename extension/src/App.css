@@ -1,3 +1,28 @@
+.app-shell {
+  padding: 24px;
+  color: #e5e7eb;
+  background: #000000;
+  min-height: 100vh;
+}
+
+.app-shell h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 16px;
+}
+
+.app-shell h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 16px 0 10px;
+}
+
+.app-shell h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 12px 0 8px;
+}
+
 .counter {
   font-size: 16px;
   padding: 5px 10px;

@@ -1,3 +1,4 @@
+import { broadcastTabsUpdated } from "./message";
 import { getDomain } from "./utils/domain";
 
 interface TabInfo {
@@ -49,3 +50,14 @@ async function getGroupedTabs() {
 }
 
 export { getGroupedTabs };
+
+
+async function updateFolders() {
+    const folders = await getGroupedTabs();
+
+    console.log("Broadcasting updated folders");
+
+    broadcastTabsUpdated(folders);
+}
+
+export { updateFolders };

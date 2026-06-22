@@ -12,11 +12,31 @@ interface TabInfo {
 type GroupedTabs = Record<string, TabInfo[]>;
 
 
+
 function App() {
 
-  const [folders,setFolders] = useState<GroupedTabs>({});
+  const [folders, setFolders] = useState<GroupedTabs>({});
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+// const [storageLoaded, setStorageLoaded] = useState(false);
 
- useEffect(() => {
+// set the folder exapnsion status to chrome.local.storage  and toggle the expansion status of a folder
+ const toggle = (domain: string) => {
+  setExpandedFolders((prev) => {
+    const updated = {
+      ...prev,
+      [domain]: !(prev[domain] ?? false),
+    };
+
+    chrome.storage.local.set({
+      expandedFolders: updated,
+    });
+
+    return updated;
+  });
+};
+
+  // to get initial data 
+  useEffect(() => {
     chrome.runtime.sendMessage(
       { type: "GET_GROUPED_TABS" },
       (response: GroupedTabs) => {
@@ -24,53 +44,52 @@ function App() {
           console.error(chrome.runtime.lastError);
           return;
         }
- console.log("Response from background:", response);
+        //  console.log("Response from background:", response);
         setFolders(response);
       }
     );
   }, []);
-  console.log("Folders: ", folders);
-  // const tabsList = tabs.map((tab) => (
-  //   <li key={tab.id}>{tab.title || tab.url || 'Unnamed Tab'}</li>
-  // ));
 
-  // useEffect(() => {
-  //   chrome.tabs.query({}, (tabs) => {
-  //     setTabs(tabs);
-  //   });
-  // }, []);
 
-  // return (
-  //   <div className="app-shell">
-  //     <h1>Open Tabs</h1>
-  //     <ul>
-  //       {/* {tabsList} */}
-  //       {workspaces.map((workspace)=>{
-  //         return (
-  //           <li key={workspace.id}>
-  //               <h2>{workspace.name}</h2>
-  //             <ul>
-  //               {workspace.folders.map((folder) => (
-  //                 <li key={folder.id}>
-  //                   <h3>{folder.name}</h3>
-  //                   <ul>
-  //                     {folder.tabs.map((tab, index) => (
-  //                       <li key={index}>{tab.title}</li>
-  //                     ))}
-  //                   </ul>
-  //                 </li>
-  //               ))}
-  //             </ul>
-  //           </li>
-  //         )
-  //       })}
+  // live update 
 
-      
-  //     </ul>
-  //   </div>
-  // );
+  useEffect(() => {
+
+    const listener = (message: any) => {
+      if (message.type === "TABS_UPDATED") {
+        console.log("Live Update");
+        setFolders(message.payload);
+      }
+    };
+    chrome.runtime.onMessage.addListener(listener);
+
+    return () => {
+      chrome.runtime.onMessage.removeListener(listener);
+    };
+
+  }, []);
+
+
+  
+  
+  // get the folder expansion status from chrome.local.storage
+
+  useEffect(() => {
+  chrome.storage.local.get("expandedFolders", (result) => {
+    console.log("Loaded:", result.expandedFolders);
+
+    if (result.expandedFolders) {
+      setExpandedFolders(
+        result.expandedFolders as Record<string, boolean>
+      );
+    }
+  });
+}, []);
+
+  
+
   return (
-   <div className="app-shell">
+    <div className="app-shell">
       <h1>Workspace</h1>
 
       {Object.entries(folders).map(([domain, tabs]) => (
@@ -79,32 +98,117 @@ function App() {
           style={{
             marginBottom: "20px",
             border: "1px solid gray",
-            borderRadius: "8px",
-            padding: "10px",
+            borderRadius: "10px",
+            padding: "14px",
           }}
         >
-          <h3>{domain}</h3>
+          <div
+            onClick={() => toggle(domain)}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              cursor: "pointer",
+              marginBottom: "10px",
+            }}
+          >
+            <h3 style={{ margin: 0 }}>
+              {expandedFolders[domain] ?? false ? "▼" : "▶"}{" "}
+              {domain} ({tabs.length})
+            </h3>
+          </div>
 
-          {tabs.map((tab) => (
+          {(expandedFolders[domain] ?? false) && tabs.map((tab) => (
             <div
               key={tab.id}
+              onClick={() => {
+                chrome.runtime.sendMessage({
+                  type: "ACTIVATE_TAB",
+                  payload: {
+                    tabId: tab.id,
+                  },
+                });
+              }}
               style={{
                 display: "flex",
+                justifyContent: "space-between",
                 alignItems: "center",
-                gap: "10px",
-                marginBottom: "8px",
+                padding: "8px 6px",
+                marginBottom: "6px",
+                borderRadius: "6px",
+                cursor: "pointer",
               }}
             >
-              {tab.favIconUrl && (
-                <img
-                  src={tab.favIconUrl}
-                  width={16}
-                  height={16}
-                  alt=""
-                />
-              )}
+              {/* Left Side */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  flex: 1,
+                  overflow: "hidden",
+                }}
+              >
+                {tab.favIconUrl && (
+                  <img
+                    src={tab.favIconUrl}
+                    width={16}
+                    height={16}
+                    alt=""
+                  />
+                )}
 
-              <span>{tab.title}</span>
+                <span
+                  style={{
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {tab.title}
+                </span>
+              </div>
+
+              {/* Right Side */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: "8px",
+                  marginLeft: "10px",
+                }}
+              >
+                {/* Pin */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+
+                    chrome.runtime.sendMessage({
+                      type: "PIN_TAB",
+                      payload: {
+                        tabId: tab.id,
+                      },
+                    });
+                  }}
+                >
+                  📌
+                </button>
+
+                {/* Close */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+
+                    chrome.runtime.sendMessage({
+                      type: "CLOSE_TAB",
+                      payload: {
+                        tabId: tab.id,
+                      },
+                    });
+                  }}
+                >
+                  ❌
+                </button>
+              </div>
             </div>
           ))}
         </div>

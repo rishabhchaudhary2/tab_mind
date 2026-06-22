@@ -1,5 +1,6 @@
+import { activateTab, closeTab, pinTab } from "./actions";
+import { tabListeners } from "./listener";
 import { getGroupedTabs } from "./tabs";
-
 
 // src/background/index.ts
 console.log("Background service worker initialized!");
@@ -21,18 +22,28 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 //     })
 // });
 
-
-
+tabListeners();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "GET_GROUPED_TABS") {
-    console.log("Request received!");
+  switch (message.type) {
+    case "GET_GROUPED_TABS":
+      console.log("Request received!");
 
-    getGroupedTabs().then((groupedTabs) => {
-      sendResponse(groupedTabs);
-    });
+      getGroupedTabs().then((groupedTabs) => {
+        sendResponse(groupedTabs);
+      });
 
-    // Keep the message channel open for the async response
-    return true;
+      return true;
+
+    case "ACTIVATE_TAB":
+      activateTab(message.payload.tabId);
+      break;
+    case "CLOSE_TAB":
+      closeTab(message.payload.tabId);
+      break;
+
+    case "PIN_TAB":
+      pinTab(message.payload.tabId);
+      break;
   }
 });

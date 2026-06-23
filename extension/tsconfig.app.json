@@ -11,6 +11,12 @@
       "vite/client",
       "chrome"
     ],
+
+    // "baseUrl": ".",
+    // "paths": {
+    //   "@/*": ["src/*"]
+    // },
+
     "skipLibCheck": true,
     /* Bundler mode */
     "moduleResolution": "bundler",

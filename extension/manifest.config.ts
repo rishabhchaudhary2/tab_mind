@@ -1,5 +1,5 @@
-import { defineManifest } from '@crxjs/vite-plugin';
-import packageJson from './package.json';
+import { defineManifest } from "@crxjs/vite-plugin";
+import packageJson from "./package.json";
 
 const { version } = packageJson;
 
@@ -8,21 +8,21 @@ export default defineManifest(async (env) => ({
   name: "Tab Workspace Manager",
   version: version,
   action: {
-    default_title: "Click to open panel"
+    default_title: "Click to open panel",
   },
   side_panel: {
-    default_path: "index.html"
+    default_path: "index.html",
   },
+  web_accessible_resources: [
+    {
+       resources: ["fullscreen.html"],
+        matches: ["<all_urls>"] 
+      },
+    ],
   background: {
     service_worker: "src/background/index.ts",
-    type: "module"
+    type: "module",
   },
-  permissions: [
-    "tabs",
-    "storage",
-    "sidePanel"
-  ],
-  host_permissions: [
-    "<all_urls>"
-  ]
+  permissions: ["tabs", "storage", "sidePanel"],
+  host_permissions: ["<all_urls>"],
 }));

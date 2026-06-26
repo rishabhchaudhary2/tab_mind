@@ -1,3 +1,8 @@
+import {
+  createWorkspace,
+  deleteWorkspace,
+  getWorkspace,
+} from "../services/workspace/ workspace.service";
 import { activateTab, closeTab, pinTab } from "./actions";
 import { tabListeners } from "./listener";
 import { getGroupedTabs } from "./tabs";
@@ -45,5 +50,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "PIN_TAB":
       pinTab(message.payload.tabId);
       break;
+    case "CREATE_WORKSPACE":
+      createWorkspace(message.payload.name).then((workspace) => {
+        sendResponse(workspace);
+      });
+
+      return true;
+    case "GET_WORKSPACES":
+      getWorkspace().then((workspaces) => {
+        sendResponse(workspaces);
+      });
+
+      return true;
+    case "DELETE_WORKSPACE":
+      deleteWorkspace(message.payload.id).then(() => {
+        sendResponse({
+          success: true,
+        });
+      });
+
+      return true;
   }
 });

@@ -1,11 +1,14 @@
+import type { TabItem } from "../services/state";
 import { broadcastTabsUpdated } from "./message";
 import { getDomain } from "./utils/domain";
 
-interface TabInfo {
-    id?: number;
-    title?: string;
-    url?: string;
-}
+// export interface TabInfo {
+//   id: number;
+//   title: string;
+//   url: string;
+//   favIconUrl?: string;
+//   pinned: boolean;
+// }
 
 function isValidUrl(url: string) {
   return (
@@ -18,46 +21,45 @@ function isValidUrl(url: string) {
 }
 
 async function getGroupedTabs() {
-    const tabs = await chrome.tabs.query({});
+  const tabs = await chrome.tabs.query({});
 
-    const groupedTabs: Record<string, TabInfo[]> = {};
+  const groupedTabs: Record<string, TabItem[]> = {};
 
-    tabs.forEach(tab => {
-        if (!tab.url || !isValidUrl(tab.url))
-            return;
+  tabs.forEach((tab) => {
+    if (!tab.url || !isValidUrl(tab.url)) return;
 
-        try {
-            // const hostname = new URL(tab.url).hostname.replace(/^www\./, "");
+    try {
+      // const hostname = new URL(tab.url).hostname.replace(/^www\./, "");
 
-            const domain = getDomain(tab.url);
+      const domain = getDomain(tab.url);
 
-            if (!groupedTabs[domain]) {
-                groupedTabs[domain] = [];
-            }
+      if (!groupedTabs[domain]) {
+        groupedTabs[domain] = [];
+      }
 
-            groupedTabs[domain].push({
-                id: tab.id,
-                title: tab.title,
-                url: tab.url
-            });
+      groupedTabs[domain].push({
+        id: tab.id!,
+        title: tab.title ?? "",
+        url: tab.url,
+        favIconUrl: tab.favIconUrl,
+        pinned: tab.pinned,
+      });
+    } catch {
+      console.log("Invalid URL:", tab.url);
+    }
+  });
 
-        } catch {
-            console.log("Invalid URL:", tab.url);
-        }
-    });
-
-    return groupedTabs;
+  return groupedTabs;
 }
 
 export { getGroupedTabs };
 
-
 async function updateFolders() {
-    const folders = await getGroupedTabs();
+  const folders = await getGroupedTabs();
 
-    console.log("Broadcasting updated folders");
+  console.log("Broadcasting updated folders");
 
-    broadcastTabsUpdated(folders);
+  broadcastTabsUpdated(folders);
 }
 
 export { updateFolders };

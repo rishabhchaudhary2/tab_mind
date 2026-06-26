@@ -105,142 +105,7 @@ function App() {
 
 
 
-  // return (
-  //   <div className="app-shell">
-  //     <h1>Workspace</h1>
-
-  //     <Button
-  //     onClick={() => {
-  //       chrome.tabs.create({
-  //         url: chrome.runtime.getURL("fullscreen.html"),
-  //       })
-  //     }}>
-  //       FullScreen
-  //     </Button>
-  //     {Object.entries(folders).map(([domain, tabs]) => (
-  //       <div
-  //         key={domain}
-  //         style={{
-  //           marginBottom: "20px",
-  //           border: "1px solid gray",
-  //           borderRadius: "10px",
-  //           padding: "14px",
-  //         }}
-  //       >
-  //         <div
-  //           onClick={() => toggle(domain)}
-  //           style={{
-  //             display: "flex",
-  //             justifyContent: "space-between",
-  //             alignItems: "center",
-  //             cursor: "pointer",
-  //             marginBottom: "10px",
-  //           }}
-  //         >
-  //           <h3 style={{ margin: 0 }}>
-  //             {expandedFolders[domain] ?? false ? "▼" : "▶"}{" "}
-  //             {domain} ({tabs.length})
-  //           </h3>
-  //         </div>
-
-  //         {(expandedFolders[domain] ?? false) && tabs.map((tab) => (
-  //           <div
-  //             key={tab.id}
-  //             onClick={() => {
-  //               chrome.runtime.sendMessage({
-  //                 type: "ACTIVATE_TAB",
-  //                 payload: {
-  //                   tabId: tab.id,
-  //                 },
-  //               });
-  //             }}
-  //             style={{
-  //               display: "flex",
-  //               justifyContent: "space-between",
-  //               alignItems: "center",
-  //               padding: "8px 6px",
-  //               marginBottom: "6px",
-  //               borderRadius: "6px",
-  //               cursor: "pointer",
-  //             }}
-  //           >
-  //             {/* Left Side */}
-  //             <div
-  //               style={{
-  //                 display: "flex",
-  //                 alignItems: "center",
-  //                 gap: "10px",
-  //                 flex: 1,
-  //                 overflow: "hidden",
-  //               }}
-  //             >
-  //               {tab.favIconUrl && (
-  //                 <img
-  //                   src={tab.favIconUrl}
-  //                   width={16}
-  //                   height={16}
-  //                   alt=""
-  //                 />
-  //               )}
-
-  //               <span
-  //                 style={{
-  //                   whiteSpace: "nowrap",
-  //                   overflow: "hidden",
-  //                   textOverflow: "ellipsis",
-  //                 }}
-  //               >
-  //                 {tab.title}
-  //               </span>
-  //             </div>
-
-  //             {/* Right Side */}
-  //             <div
-  //               style={{
-  //                 display: "flex",
-  //                 gap: "8px",
-  //                 marginLeft: "10px",
-  //               }}
-  //             >
-  //               {/* Pin */}
-  //               <button
-  //                 onClick={(e) => {
-  //                   e.stopPropagation();
-
-  //                   chrome.runtime.sendMessage({
-  //                     type: "PIN_TAB",
-  //                     payload: {
-  //                       tabId: tab.id,
-  //                     },
-  //                   });
-  //                 }}
-  //               >
-  //                 📌
-  //               </button>
-
-  //               {/* Close */}
-  //               <button
-  //                 onClick={(e) => {
-  //                   e.stopPropagation();
-
-  //                   chrome.runtime.sendMessage({
-  //                     type: "CLOSE_TAB",
-  //                     payload: {
-  //                       tabId: tab.id,
-  //                     },
-  //                   });
-  //                 }}
-  //               >
-  //                 ❌
-  //               </button>
-  //             </div>
-  //           </div>
-  //         ))}
-  //       </div>
-  //     ))}
-  //   </div>
-  // );
-
+  
 return (
   <div className="h-screen bg-background text-foreground flex flex-col">
     {/* Header */}
@@ -260,10 +125,49 @@ return (
         </Button>
       </div>
 
+
+
      <InputGroup   className="mt-4 ">
 
     <Input placeholder="Search tabs..." />
 </InputGroup>
+    </div>
+
+    <div className="border-b px-4 py-2">
+      <Button
+      onClick={() => {
+        chrome.runtime.sendMessage({
+          type: "CREATE_WORKSPACE",
+          payload: {
+            name: "New Workspace",
+          },
+        },(response)=>console.log(response));
+      }}
+    >
+      Create Workspace
+    </Button>
+      <Button
+      onClick={() => {
+        chrome.runtime.sendMessage({
+          type: "GET_WORKSPACES",
+        }, (response) => console.log(response));
+      }}
+    >
+      Get Workspace
+    </Button>
+      <Button
+      onClick={() => {
+        chrome.runtime.sendMessage({
+          type: "DELETE_WORKSPACE",
+          payload: {
+            id: "fd3af211-769f-45b7-86de-ffe51e2c91cd", // Replace with actual workspace ID
+          },
+        });
+      }}
+    >
+      Delete Workspace
+    </Button>
+
     </div>
 
     {/* Body */}

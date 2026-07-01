@@ -1,11 +1,22 @@
 import {
   createWorkspace,
   deleteWorkspace,
-  getWorkspace,
-} from "../services/workspace/ workspace.service";
+  getWorkspaces,
+  restoreWorkspace,
+} from "../services/workspace/workspace.service.ts";
 import { activateTab, closeTab, pinTab } from "./actions";
 import { tabListeners } from "./listener";
 import { getGroupedTabs } from "./tabs";
+
+type BackgroundMessage =
+  | { type: "GET_GROUPED_TABS" }
+  | { type: "ACTIVATE_TAB"; payload: { tabId: number } }
+  | { type: "CLOSE_TAB"; payload: { tabId: number } }
+  | { type: "PIN_TAB"; payload: { tabId: number } }
+  | { type: "CREATE_WORKSPACE"; payload: { name: string } }
+  | { type: "GET_WORKSPACES" }
+  | { type: "RESTORE_WORKSPACE"; payload: { id: string } }
+  | { type: "DELETE_WORKSPACE"; payload: { id: string } };
 
 // src/background/index.ts
 console.log("Background service worker initialized!");
@@ -29,7 +40,12 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 tabListeners();
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(
+  (
+    message: BackgroundMessage,
+    _sender: chrome.runtime.MessageSender,
+    sendResponse: (response?: unknown) => void,
+  ) => {
   switch (message.type) {
     case "GET_GROUPED_TABS":
       console.log("Request received!");
@@ -57,9 +73,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       return true;
     case "GET_WORKSPACES":
-      getWorkspace().then((workspaces) => {
+      getWorkspaces().then((workspaces) => {
         sendResponse(workspaces);
       });
+
+      return true;
+    case "RESTORE_WORKSPACE":
+      restoreWorkspace(message.payload.id)
+        .then((workspace) => {
+          sendResponse(workspace);
+        })
+        .catch((error: unknown) => {
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
 
       return true;
     case "DELETE_WORKSPACE":
@@ -71,4 +100,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       return true;
   }
-});
+  },
+);

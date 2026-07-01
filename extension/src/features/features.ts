@@ -1,12 +1,25 @@
+type FolderRecord = {
+  id: string;
+  name: string;
+  tabs: unknown[];
+};
 
-function createFolder(name) {
+export function createFolder(name: string) {
   chrome.storage.local.get(["folders"], (data) => {
-    let folders = data.folders || [];
+    const folders = (data.folders as FolderRecord[] | undefined) ?? [];
+
     folders.push({
       id: Date.now().toString(),
-      name: name,
-      tabs: []
+      name,
+      tabs: [],
     });
+
     chrome.storage.local.set({ folders }, loadFolders);
+  });
+}
+
+export function loadFolders() {
+  chrome.storage.local.get(["folders"], (data) => {
+    void data.folders;
   });
 }

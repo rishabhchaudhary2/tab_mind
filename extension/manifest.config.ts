@@ -3,7 +3,7 @@ import packageJson from "./package.json";
 
 const { version } = packageJson;
 
-export default defineManifest(async (env) => ({
+export default defineManifest(async () => ({
   manifest_version: 3,
   name: "Tab Workspace Manager",
   version: version,

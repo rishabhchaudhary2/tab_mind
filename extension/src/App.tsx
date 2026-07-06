@@ -12,12 +12,15 @@ import { ScrollArea } from "./components/ui/scroll-area";
 import {
   ChevronDown,
   ChevronRight,
+  FolderPlus,
+  RotateCcw,
   Pin,
   X,
   Monitor,
+  Trash2,
 } from "lucide-react";
 import { InputGroup } from './components/ui/input-group';
-import { MagnifyingGlass } from '@phosphor-icons/react';
+import type { Workspace } from "./services/state";
 
 interface TabInfo {
   id?: number;
@@ -34,7 +37,8 @@ function App() {
 
   const [folders, setFolders] = useState<GroupedTabs>({});
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-  // const [storageLoaded, setStorageLoaded] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaceName, setWorkspaceName] = useState("New Workspace");
 
   // set the folder exapnsion status to chrome.local.storage  and toggle the expansion status of a folder
   const toggle = (domain: string) => {
@@ -67,6 +71,21 @@ function App() {
     );
   }, []);
 
+  const loadWorkspaces = () => {
+    chrome.runtime.sendMessage({ type: "GET_WORKSPACES" }, (response: Workspace[]) => {
+      if (chrome.runtime.lastError) {
+        console.error(chrome.runtime.lastError);
+        return;
+      }
+
+      setWorkspaces(response ?? []);
+    });
+  };
+
+  useEffect(() => {
+    loadWorkspaces();
+  }, []);
+
 
   // live update 
 
@@ -85,6 +104,44 @@ function App() {
     };
 
   }, []);
+
+  const createWorkspace = () => {
+    chrome.runtime.sendMessage(
+      {
+        type: "CREATE_WORKSPACE",
+        payload: {
+          name: workspaceName.trim() || "New Workspace",
+        },
+      },
+      () => {
+        loadWorkspaces();
+      }
+    );
+  };
+
+  const restoreWorkspace = (id: string) => {
+    chrome.runtime.sendMessage(
+      {
+        type: "RESTORE_WORKSPACE",
+        payload: { id },
+      },
+      () => {
+        loadWorkspaces();
+      }
+    );
+  };
+
+  const deleteWorkspace = (id: string) => {
+    chrome.runtime.sendMessage(
+      {
+        type: "DELETE_WORKSPACE",
+        payload: { id },
+      },
+      () => {
+        loadWorkspaces();
+      }
+    );
+  };
 
 
 
@@ -133,41 +190,59 @@ return (
 </InputGroup>
     </div>
 
-    <div className="border-b px-4 py-2">
-      <Button
-      onClick={() => {
-        chrome.runtime.sendMessage({
-          type: "CREATE_WORKSPACE",
-          payload: {
-            name: "New Workspace",
-          },
-        },(response)=>console.log(response));
-      }}
-    >
-      Create Workspace
-    </Button>
-      <Button
-      onClick={() => {
-        chrome.runtime.sendMessage({
-          type: "GET_WORKSPACES",
-        }, (response) => console.log(response));
-      }}
-    >
-      Get Workspace
-    </Button>
-      <Button
-      onClick={() => {
-        chrome.runtime.sendMessage({
-          type: "DELETE_WORKSPACE",
-          payload: {
-            id: "fd3af211-769f-45b7-86de-ffe51e2c91cd", // Replace with actual workspace ID
-          },
-        });
-      }}
-    >
-      Delete Workspace
-    </Button>
+    <div className="border-b px-4 py-3">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Input
+            value={workspaceName}
+            onChange={(event) => setWorkspaceName(event.target.value)}
+            placeholder="Workspace name"
+          />
+          <Button onClick={createWorkspace}>
+            <FolderPlus className="mr-2 h-4 w-4" />
+            Save
+          </Button>
+        </div>
 
+        <div className="grid gap-2">
+          {workspaces.length === 0 ? (
+            <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+              No saved workspaces yet.
+            </div>
+          ) : (
+            workspaces.map((workspace) => (
+              <Card className="shadow-none border-border/60" key={workspace.id}>
+                <CardContent className="flex items-center justify-between gap-3 p-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{workspace.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {workspace.folders.length} folders · Updated {new Date(workspace.updatedAt).toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => restoreWorkspace(workspace.id)}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Restore
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteWorkspace(workspace.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      </div>
     </div>
 
     {/* Body */}

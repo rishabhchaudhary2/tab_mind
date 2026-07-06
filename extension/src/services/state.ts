@@ -20,7 +20,17 @@ export interface Folder {
 
 //   color?: string;
 
-  tabs: TabItem[];
+  tabs: WorkspaceTab[];
+}
+
+export interface WorkspaceTab {
+  title: string;
+
+  url: string;
+
+  favIconUrl?: string;
+
+  pinned: boolean;
 }
 export interface TabItem {
   id: number;

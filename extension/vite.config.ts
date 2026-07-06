@@ -13,6 +13,15 @@ export default defineConfig({
     crx({ manifest }),
   ],
 
+  build: {
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        fullscreen: fileURLToPath(new URL("./fullscreen.html", import.meta.url)),
+      },
+    },
+  },
+
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

@@ -1,0 +1,26 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Environment Variables (NEVER commit your actual .env file)
+.env
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+embedding_cache.db
+
+# OS & IDE specifics (macOS, VSCode, Cursor, etc.)
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log

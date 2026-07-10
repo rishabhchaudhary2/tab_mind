@@ -1,11 +1,14 @@
 export function broadcastTabsUpdated(groupedTabs: any) {
-    chrome.runtime.sendMessage(
-        {
+    void chrome.runtime
+        .sendMessage({
             type: "TABS_UPDATED",
             payload: groupedTabs,
-        },
-        () => {
-            void chrome.runtime.lastError;
-        },
-    );
+        })
+        .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+
+            if (!message.includes("Receiving end does not exist")) {
+                console.error("Failed to broadcast tab update:", error);
+            }
+        });
 }

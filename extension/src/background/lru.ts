@@ -59,7 +59,7 @@ export async function enforceRam(){
     
     }
 
-    const eligibleTabs = tabs.filter(isEligible);
+    let eligibleTabs = tabs.filter(isEligible);
 
     if(stateChanged) {
         await saveState(state);
@@ -69,23 +69,25 @@ export async function enforceRam(){
         return;
     }
 
-     const candidate = eligibleTabs.reduce<chrome.tabs.Tab | undefined>(
-    (lr, tab) => {
-      if (!lr) {
-        return tab;
-      }
+    while(eligibleTabs.length > MAX_TABS_RAM){
+        const candi = eligibleTabs.reduce<chrome.tabs.Tab | undefined> (
+            (lr, tab) => {
+                if(!lr) {
+                    return tab;
+                }
 
-      const leastRecentAccess = state.metadata.lru[lr.id ?? -1] ?? 0;
-      const currentAccess = state.metadata.lru[tab.id ?? -1] ?? 0;
+                const lraccess = state.metadata.lru[lr.id ?? -1] ?? 0;
+                const craccess = state.metadata.lru[tab.id ?? -1] ?? 0;
 
-      return currentAccess < leastRecentAccess ? tab : lr;
-    },
-    undefined,
-  );
-  if (!candidate?.id) {
-    return;
-  }
+                return craccess < lraccess ? tab : lr;
+            },
+            undefined,
+        );
+        if(!candi?.id) break;
 
-  await chrome.tabs.discard(candidate.id);
+        await chrome.tabs.discard(candi.id);
 
+        eligibleTabs = eligibleTabs.filter((tab) => tab.id !== candi.id);
+    };
+  
 }

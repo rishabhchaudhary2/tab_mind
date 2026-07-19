@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-dotenv
+numpy
+pydantic
+sentence-transformers
+igraph
+leidenalg

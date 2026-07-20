@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type JSX } from 'react';
 import {
   Bookmark,
   ChevronDown,
@@ -11,6 +11,8 @@ import {
   Settings,
   Sparkles,
   Trash2,
+  UserPlus,
+  Users2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { Workspace } from '../types/index';
@@ -19,7 +21,9 @@ import { ContextMenu } from './ContextMenu';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { NewWorkspaceModal } from './NewWorkspaceModal';
 import { RenameModal } from './RenameModal';
-
+import { InviteModal } from './InviteModal';
+import { RedeemInviteModal } from './RedeemInviteModal';
+import { Users } from 'lucide-react';
 export function WorkspaceSidebar() {
   const {
     workspaces,
@@ -30,10 +34,18 @@ export function WorkspaceSidebar() {
     renameWorkspace,
     clusterTabsByDomain,
     clusterTabsByTag,
+    refreshWorkspaces,
     clusterTabsSmart,
     saveCurrentTabsAsWorkspace,
     refreshLiveTabs,
+    myRoles,
+    canEdit,
   } = useApp();
+
+  const [showInvite, setShowInvite] = useState(false);
+  const [workspaceToInvite, setWorkspaceToInvite] = useState<Workspace | null>(null);
+  const [, setShowManageMembers] = useState(false);
+  const [, setWorkspaceToManage] = useState<Workspace | null>(null);
 
   const [quickActionsExpanded, setQuickActionsExpanded] = useState(true);
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
@@ -43,6 +55,7 @@ export function WorkspaceSidebar() {
   const [showCluster, setShowCluster] = useState(false);
   const [workspaceToDelete, setWorkspaceToDelete] = useState<Workspace | null>(null);
   const [workspaceToRename, setWorkspaceToRename] = useState<Workspace | null>(null);
+  const [showRedeem, setShowRedeem] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
     position: { x: number; y: number };
@@ -85,18 +98,21 @@ export function WorkspaceSidebar() {
 
   const quickActions = [
     { id: 'save', label: 'Save Current Tabs', icon: Bookmark },
+     { id: 'redeem', label: 'Join Workspace', icon: Users },
     { id: 'open', label: 'Open Last Workspace', icon: Clock },
     { id: 'search', label: 'Search All Tabs', icon: Search },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   const handleQuickAction = (actionId: string) => {
-    if (actionId === 'save') {
-      setShowSaveLiveTabs(true);
-    } else if (actionId === 'open') {
-      refreshLiveTabs();
-    }
-  };
+  if (actionId === 'save') {
+    setShowSaveLiveTabs(true);
+  } else if (actionId === 'open') {
+    refreshLiveTabs();
+  } else if (actionId === 'redeem') {
+    setShowRedeem(true);
+  }
+};
 
   const handleContextMenu = (e: React.MouseEvent, workspace: Workspace) => {
     e.preventDefault();
@@ -125,28 +141,63 @@ export function WorkspaceSidebar() {
   };
 
   const contextMenuOptions = contextMenu.workspace
-    ? [
-        {
+  ? (() => {
+      const role = myRoles[contextMenu.workspace.id];
+      const isOwner = role === 'owner';
+      const isEditor = role === 'editor';
+
+      const options: Array<{
+        label: string;
+        icon: JSX.Element;
+        onClick: () => void;
+        danger?: boolean;
+      }> = [];
+
+      if (isOwner || isEditor) {
+        options.push({
           label: 'Rename',
           icon: <Pencil className="w-3.5 h-3.5" />,
           onClick: () => handleRenameClick(contextMenu.workspace!),
+        });
+      }
+
+      options.push({
+        label: 'Cluster Tabs',
+        icon: <Sparkles className="w-3.5 h-3.5" />,
+        onClick: () => {
+          selectWorkspace(contextMenu.workspace!);
+          setShowCluster(true);
         },
-        {
-          label: 'Cluster Tabs',
-          icon: <Sparkles className="w-3.5 h-3.5" />,
+      });
+
+      if (isOwner) {
+        options.push({
+          label: 'Invite People',
+          icon: <UserPlus className="w-3.5 h-3.5" />,
           onClick: () => {
-            selectWorkspace(contextMenu.workspace!);
-            setShowCluster(true);
+            setWorkspaceToInvite(contextMenu.workspace!);
+            setShowInvite(true);
           },
-        },
-        {
+        });
+        options.push({
+          label: 'Manage People',
+          icon: <Users2 className="w-3.5 h-3.5" />,
+          onClick: () => {
+            setWorkspaceToManage(contextMenu.workspace!);
+            setShowManageMembers(true);
+          },
+        });
+        options.push({
           label: 'Delete',
           icon: <Trash2 className="w-3.5 h-3.5" />,
           onClick: () => handleDeleteClick(contextMenu.workspace!),
           danger: true,
-        },
-      ]
-    : [];
+        });
+      }
+
+      return options;
+    })()
+  : [];
 
   return (
     <>
@@ -245,10 +296,18 @@ export function WorkspaceSidebar() {
           )}
         </div>
 
+        <RedeemInviteModal
+          isOpen={showRedeem}
+          onClose={() => setShowRedeem(false)}
+          onAccepted={async () => {
+            await refreshWorkspaces();
+          }}
+        />
+
         <div className="p-3 border-t border-dark-border space-y-2">
           <button
             onClick={handleCluster}
-            disabled={!activeWorkspace}
+            disabled={!activeWorkspace || !canEdit}
             className="w-full py-2 px-3 rounded-lg bg-green-500/10 text-green-400 text-sm font-medium hover:bg-green-500/20 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Sparkles className="w-4 h-4" />
@@ -293,6 +352,19 @@ export function WorkspaceSidebar() {
         currentName={workspaceToRename?.name || ''}
         title="Rename Workspace"
       />
+
+        {workspaceToInvite && (
+          <InviteModal
+            isOpen={showInvite}
+            onClose={() => {
+              setShowInvite(false);
+              setWorkspaceToInvite(null);
+            }}
+            workspaceId={workspaceToInvite.id}
+            workspaceName={workspaceToInvite.name}
+          />
+        )}
+
 
       <ClusterModal
         isOpen={showCluster}

@@ -503,3 +503,69 @@ export async function replaceWorkspaceFoldersAndTabs(
     'create folders/tabs individually for now.',
   );
 }
+
+/**
+ * Create an invite for a workspace. Returns the invite code so the caller
+ * can build a shareable link. Only owners can create invites (enforced by RLS).
+ */
+export async function createInvite(
+  workspaceId: string,
+  role: 'editor' | 'viewer' = 'editor',
+): Promise<{ code: string; expiresAt: string }> {
+  const supabase = getSupabaseClient();
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) throw new Error('Not signed in');
+
+  const { data, error } = await supabase
+    .from('invites')
+    .insert({
+      workspace_id: workspaceId,
+      role,
+      invited_by: userData.user.id,
+    })
+    .select('code, expires_at')
+    .single();
+
+  if (error) throw error;
+  return { code: data.code, expiresAt: data.expires_at };
+}
+
+/**
+ * Accept an invite by its code. Calls the DB function which validates,
+ * inserts the workspace_members row, and marks the invite as accepted —
+ * all in one transaction. Returns the workspace id the user just joined.
+ */
+export async function acceptInvite(code: string): Promise<string> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase.rpc('accept_invite', {
+    invite_code: code,
+  });
+
+  if (error) throw error;
+  if (!data) throw new Error('Invite acceptance returned no workspace id');
+  return data as string;
+}
+
+
+/** Returns a map of workspaceId → the current user's role in that workspace. */
+export async function fetchMyRoles(): Promise<Record<string, 'owner' | 'editor' | 'viewer'>> {
+  const supabase = getSupabaseClient();
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) return {};
+
+  const { data, error } = await supabase
+    .from('workspace_members')
+    .select('workspace_id, role')
+    .eq('user_id', userData.user.id);
+
+  if (error) throw error;
+
+  const roles: Record<string, 'owner' | 'editor' | 'viewer'> = {};
+  for (const row of data ?? []) {
+    roles[row.workspace_id as string] = row.role as 'owner' | 'editor' | 'viewer';
+  }
+  return roles;
+}

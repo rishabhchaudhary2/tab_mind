@@ -20,6 +20,7 @@ import {
   fetchWorkspaces,
   renameFolderRow,
   renameWorkspaceRow,
+  fetchMyRoles,
 } from '../services/supabase/store';
 import {
   joinWorkspace,
@@ -28,6 +29,7 @@ import {
   onTabChange,
   setCurrentUser,
 } from '../services/realtime';
+
 
 
 // Shape UI callers pass when adding a tab — only the fields they know.
@@ -70,6 +72,10 @@ interface AppContextType {
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshWorkspaces: () => Promise<void>;
+
+  myRoles: Record<string, 'owner' | 'editor' | 'viewer'>;
+  currentRole: 'owner' | 'editor' | 'viewer' | null;
+  canEdit: boolean;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -86,6 +92,8 @@ const folderColorOptions: Folder['color'][] = [
 ];
 
 export function AppProvider({ children }: { children: ReactNode }) {
+
+  const [myRoles, setMyRoles] = useState<Record<string, 'owner' | 'editor' | 'viewer'>>({});
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
   const [activeFolder, setActiveFolder] = useState<Folder | null>(null);
@@ -106,39 +114,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const refreshWorkspaces = useCallback(async () => {
-    if (!client || !user) {
-      setWorkspaces([]);
-      setActiveWorkspace(null);
-      setActiveFolder(null);
-      return;
-    }
+const refreshWorkspaces = useCallback(async () => {
+  if (!client || !user) {
+    setWorkspaces([]);
+    setActiveWorkspace(null);
+    setActiveFolder(null);
+    setMyRoles({});
+    return;
+  }
 
-    setDataLoading(true);
-    try {
-      const nextWorkspaces = await fetchWorkspaces(user);
-      setWorkspaces(nextWorkspaces);
+  setDataLoading(true);
+  try {
+    const [nextWorkspaces, roles] = await Promise.all([
+      fetchWorkspaces(user),
+      fetchMyRoles(),
+    ]);
+    setWorkspaces(nextWorkspaces);
+    setMyRoles(roles);
 
-      setActiveWorkspace((prev) => {
-        if (!prev) return nextWorkspaces[0] ?? null;
-        return nextWorkspaces.find((w) => w.id === prev.id) ?? (nextWorkspaces[0] ?? null);
-      });
+    setActiveWorkspace((prev) => {
+      if (!prev) return nextWorkspaces[0] ?? null;
+      return nextWorkspaces.find((w) => w.id === prev.id) ?? (nextWorkspaces[0] ?? null);
+    });
 
-      setActiveFolder((prev) => {
-        if (!prev) return null;
-        for (const ws of nextWorkspaces) {
-          const found = ws.folders.find((f) => f.id === prev.id);
-          if (found) return found;
-        }
-        return null;
-      });
-    } catch (error) {
-      console.error(error);
-      setAuthError(error instanceof Error ? error.message : 'Failed to load workspace data');
-    } finally {
-      setDataLoading(false);
-    }
-  }, [client, user]);
+    setActiveFolder((prev) => {
+      if (!prev) return null;
+      for (const ws of nextWorkspaces) {
+        const found = ws.folders.find((f) => f.id === prev.id);
+        if (found) return found;
+      }
+      return null;
+    });
+  } catch (error) {
+    console.error(error);
+    setAuthError(error instanceof Error ? error.message : 'Failed to load workspace data');
+  } finally {
+    setDataLoading(false);
+  }
+}, [client, user]);
+
+  // Auto-accept invite when the extension is opened with a ?invite=<code>
+// query string. We watch for `user` because the accept requires auth.
+
+
+
+
 
   // Subscribe to realtime updates for the currently active workspace.
 // Log-only for now — we're just verifying events arrive.
@@ -453,7 +473,7 @@ const unsubTab = onTabChange((change) => {
     [refreshWorkspaces, user, workspaces],
   );
 
- const deleteFolder = useCallback(
+const deleteFolder = useCallback(
   (_workspaceId: string, folderId: string) => {
     if (!user) return;
 
@@ -479,11 +499,10 @@ const unsubTab = onTabChange((change) => {
   [refreshWorkspaces, user, workspaces],
 );
 
-  const renameFolder = useCallback(
+const renameFolder = useCallback(
   (_workspaceId: string, folderId: string, newName: string) => {
     if (!user) return;
 
-    // Find the current version of this folder from local state.
     let currentVersion = 0;
     for (const ws of workspaces) {
       const folder = ws.folders.find((f) => f.id === folderId);
@@ -495,7 +514,6 @@ const unsubTab = onTabChange((change) => {
 
     void (async () => {
       try {
-        await new Promise((r) => setTimeout(r, 3000));
         await renameFolderRow(user, folderId, newName, currentVersion);
         await refreshWorkspaces();
       } catch (error) {
@@ -506,7 +524,6 @@ const unsubTab = onTabChange((change) => {
   },
   [refreshWorkspaces, user, workspaces],
 );
-
   // ─── Tab CRUD ─────────────────────────────────────────────────────────────────
 
   const addTab = useCallback(
@@ -531,11 +548,11 @@ const unsubTab = onTabChange((change) => {
     [refreshWorkspaces, user, workspaces],
   );
 
+
 const removeTab = useCallback(
   (_workspaceId: string, _folderId: string, tabId: string) => {
     if (!user) return;
 
-    // Tabs live inside folders, so we have to walk two levels to find it.
     let currentVersion = 0;
     outer: for (const ws of workspaces) {
       for (const f of ws.folders) {
@@ -559,8 +576,6 @@ const removeTab = useCallback(
   },
   [refreshWorkspaces, user, workspaces],
 );
-
-
   // ─── Misc ────────────────────────────────────────────────────────────────────
 
   const openAllTabs = useCallback((folder: Folder) => {
@@ -680,6 +695,9 @@ const removeTab = useCallback(
     if (error) throw error;
   }, [client]);
 
+  const currentRole = activeWorkspace ? (myRoles[activeWorkspace.id] ?? null) : null;
+const canEdit = currentRole === 'owner' || currentRole === 'editor';
+
   return (
     <AppContext.Provider
       value={{
@@ -715,11 +733,15 @@ const removeTab = useCallback(
         signUp,
         signOut,
         refreshWorkspaces,
+        myRoles,
+        currentRole,
+        canEdit,
       }}
     >
       {children}
     </AppContext.Provider>
   );
+
 }
 
 export function useApp() {

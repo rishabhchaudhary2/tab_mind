@@ -16,7 +16,7 @@ import { ContextMenu } from './ContextMenu';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 
 export function TabList() {
-  const { activeWorkspace, activeFolder, searchQuery, removeTab, openAllTabs, deleteFolder, selectFolder } = useApp();
+  const { activeWorkspace, activeFolder, searchQuery, removeTab, openAllTabs, deleteFolder, selectFolder,canEdit } = useApp();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [tabToDelete, setTabToDelete] = useState<Tab | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -151,13 +151,14 @@ export function TabList() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-semibold text-white truncate">{activeFolder.name}</h2>
+                { canEdit && (  
                   <button
                     onClick={() => handleOpenTab(activeFolder.tabs[0]?.url || '#')}
                     disabled={activeFolder.tabs.length === 0}
                     className="p-1 hover:bg-dark-hover rounded transition-colors text-gray-400 hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
+                  </button>)}
                 </div>
                 <p className="text-xs text-gray-500">
                   {visibleTabs.length} of {activeFolder.tabs.length} tabs
@@ -207,7 +208,9 @@ export function TabList() {
                     key={tab.id}
                     className="group px-3 py-2.5 rounded-lg flex items-center gap-3 hover:bg-dark-card transition-colors cursor-pointer"
                     onClick={() => handleOpenTab(tab.url)}
-                    onContextMenu={(e) => handleContextMenu(e, tab)}
+                    onContextMenu={(e) => {
+                              if (canEdit) handleContextMenu(e, tab);
+                            }}
                   >
                     <div
                       className={`w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-medium overflow-hidden ${
@@ -244,9 +247,10 @@ export function TabList() {
                       </div>
                     </div>
 
-                    <GripVertical className="w-4 h-4 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab" />
-
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {canEdit && (
+                      <GripVertical className="w-4 h-4 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab" />
+                    )}
+                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -256,15 +260,17 @@ export function TabList() {
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTab(tab);
-                        }}
-                        className="p-1.5 hover:bg-dark-hover rounded transition-colors text-gray-400 hover:text-red-400"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteTab(tab);
+                          }}
+                          className="p-1.5 hover:bg-dark-hover rounded transition-colors text-gray-400 hover:text-red-400"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -287,28 +293,34 @@ export function TabList() {
                 <Play className="w-3.5 h-3.5" />
                 Open All
               </button>
-              <button
-                onClick={handleSaveTabs}
-                className="px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors flex items-center gap-1.5"
-              >
-                <Bookmark className="w-3.5 h-3.5" />
-                Save Tabs
-              </button>
-              <button
-                onClick={handleMoveTo}
-                disabled={visibleTabs.length === 0}
-                className="px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 text-sm font-medium hover:bg-blue-500/20 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
-                Move To...
-              </button>
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors flex items-center gap-1.5"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete Folder
-              </button>
+              {canEdit && (
+                  <>
+                    <button
+                      onClick={handleSaveTabs}
+                      className="px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors flex items-center gap-1.5"
+                    >
+                      <Bookmark className="w-3.5 h-3.5" />
+                      Save Tabs
+                    </button>
+
+                    <button
+                      onClick={handleMoveTo}
+                      disabled={visibleTabs.length === 0}
+                      className="px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 text-sm font-medium hover:bg-blue-500/20 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ArrowRight className="w-3.5 h-3.5" />
+                      Move To...
+                    </button>
+
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete Folder
+                    </button>
+                  </>
+                )}
             </div>
           </div>
         </div>

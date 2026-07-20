@@ -13,7 +13,7 @@
 
 import { getSupabaseClient } from "./supabase/client"; // your existing Supabase client
 
-const supabase=getSupabaseClient();
+// const supabase=getSupabaseClient();
 
 // ---------- Types ----------
 

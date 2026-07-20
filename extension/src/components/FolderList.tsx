@@ -15,8 +15,7 @@ import { NewFolderModal } from './NewFolderModal';
 import { RenameModal } from './RenameModal';
 
 export function FolderList() {
-  const { activeWorkspace, activeFolder, selectFolder, createFolder, deleteFolder, renameFolder } = useApp();
-
+const { activeWorkspace, activeFolder, selectFolder, createFolder, deleteFolder, renameFolder, canEdit } = useApp();
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRename, setShowRename] = useState(false);
@@ -111,12 +110,13 @@ export function FolderList() {
               <ArrowLeft className="w-4 h-4" />
             </button>
             <h2 className="text-base font-semibold text-white flex-1 truncate">{activeWorkspace.name}</h2>
-            <button
+            {canEdit && (
+              <button
               onClick={() => setShowNewFolder(true)}
               className="p-1.5 hover:bg-dark-hover rounded-lg transition-colors text-gray-400 hover:text-gray-200"
             >
               <Pencil className="w-3.5 h-3.5" />
-            </button>
+            </button>)}
           </div>
           <p className="text-xs text-gray-500 ml-10">{activeWorkspace.tabCount} tabs</p>
         </div>
@@ -133,7 +133,9 @@ export function FolderList() {
                     role="button"
                     tabIndex={0}
                     onClick={() => selectFolder(folder)}
-                    onContextMenu={(e) => handleContextMenu(e, folder)}
+                    onContextMenu={(e) => {
+                                    if (canEdit) handleContextMenu(e, folder);
+                                  }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         selectFolder(folder);
@@ -152,15 +154,17 @@ export function FolderList() {
                     <span className="text-xs px-1.5 py-0.5 rounded-full bg-dark-card text-gray-500">
                       {folder.tabCount}
                     </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleContextMenu(e, folder);
-                      }}
-                      className="p-0.5 hover:bg-dark-hover rounded opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-200"
-                    >
-                      <MoreHorizontal className="w-3.5 h-3.5" />
-                    </button>
+                    {canEdit && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleContextMenu(e, folder);
+                          }}
+                          className="p-0.5 hover:bg-dark-hover rounded opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-200"
+                        >
+                          <MoreHorizontal className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                   </div>
                 </div>
               );
@@ -169,13 +173,14 @@ export function FolderList() {
         </div>
 
         <div className="p-3 border-t border-dark-border">
-          <button
+         { canEdit &&(
+           <button
             onClick={() => setShowNewFolder(true)}
             className="w-full py-2 px-3 rounded-lg border border-dashed border-gray-600 text-gray-400 text-sm font-medium hover:bg-dark-hover hover:border-gray-500 hover:text-gray-300 transition-all flex items-center justify-center gap-1.5"
           >
             <Plus className="w-4 h-4" />
             New Folder
-          </button>
+          </button>)}
         </div>
       </aside>
 

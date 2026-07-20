@@ -1,5 +1,3 @@
-// src/types/index.ts
-
 export interface Tab {
   id: string;
   title: string;
@@ -8,15 +6,6 @@ export interface Tab {
   favicon?: string;
   sourceTag: string;
   sourceColor: TagColor;
-
-  // ---- Fields added for collaboration ----
-  // These come from the folder_tabs table and are needed so that
-  // realtime events can locate this tab in state, and so that sync.ts
-  // can do a version check when we update it.
-  folderId: string;
-  workspaceId: string;
-  positionKey: string;
-  version: number;
 }
 
 /** A live browser tab as returned by the background service worker */
@@ -35,11 +24,6 @@ export interface Folder {
   color: FolderColor;
   tabCount: number;
   tabs: Tab[];
-
-  // ---- Fields added for collaboration ----
-  workspaceId: string;
-  positionKey: string;
-  version: number;
 }
 
 export interface Workspace {

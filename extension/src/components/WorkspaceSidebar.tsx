@@ -13,7 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import type { Workspace } from '../types';
+import type { Workspace } from '../types/index';
 import { ClusterModal } from './ClusterModal';
 import { ContextMenu } from './ContextMenu';
 import { DeleteConfirmModal } from './DeleteConfirmModal';

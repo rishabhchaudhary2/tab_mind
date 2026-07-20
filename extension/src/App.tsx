@@ -7,9 +7,12 @@ import { WorkspaceSidebar } from './components/WorkspaceSidebar';
 import { AppProvider } from './context/AppContext';
 import { useApp } from './context/AppContext';
 import { isSupabaseConfigured } from './services/supabase/client';
+// import { useEffect } from "react";
+
 
 function AppLayout() {
   const { authLoading, dataLoading, user, signOut, activeWorkspace, activeFolder } = useApp();
+
 
   if (!isSupabaseConfigured) {
     return (

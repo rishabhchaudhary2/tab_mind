@@ -9,7 +9,7 @@ import {
   Save,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import type { LiveTab } from '../types';
+import type { LiveTab } from '../types/index';
 import { NewWorkspaceModal } from './NewWorkspaceModal';
 
 const domainColors: string[] = [

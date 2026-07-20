@@ -29,3 +29,10 @@ export function getSupabaseClient(): SupabaseClient {
   }
   return client;
 }
+
+// Debug hook — remove before shipping
+if (typeof window !== 'undefined' && isSupabaseConfigured) {
+  (window as Window & {
+    __sb?: SupabaseClient;
+  }).__sb = getSupabaseClient();
+}

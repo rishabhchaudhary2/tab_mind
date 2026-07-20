@@ -8,7 +8,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import type { Folder } from '../types';
+import type { Folder } from '../types/index';
 import { ContextMenu } from './ContextMenu';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { NewFolderModal } from './NewFolderModal';

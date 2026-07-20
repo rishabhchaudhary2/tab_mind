@@ -1,306 +1,505 @@
+// src/services/supabase/store.ts
+//
+// Read + write layer for workspaces, folders, and tabs.
+//
+// Writes go directly to Supabase for now. When we add sync.ts (step 6),
+// mutations will be routed through an outbox with version-conditional
+// updates. Until then, AppContext calls refreshWorkspaces() after every
+// write to reload state — inefficient but simple and correct.
+
 import type { User } from '@supabase/supabase-js';
-import type { Folder, Tab, Workspace, WorkspaceColor } from '../../types';
+import type {
+  Folder,
+  FolderColor,
+  Tab,
+  TagColor,
+  Workspace,
+  WorkspaceColor,
+} from '../../types';
+import { generateKeyBetween } from '../Fractionalindex';
 import { getSupabaseClient } from './client';
+
+// ---------- Row types (mirror the schema) ----------
 
 interface WorkspaceRow {
   id: string;
   user_id: string;
   name: string;
-  tab_count: number | null;
-  folders: unknown;
   created_at?: string;
 }
+
+interface FolderRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  position_key: string;
+  is_deleted: boolean;
+  version: number;
+  created_by: string;
+  updated_by: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface TabRow {
+  id: string;
+  workspace_id: string;
+  folder_id: string;
+  url: string;
+  title: string;
+  favicon_url: string | null;
+  position_key: string;
+  is_deleted: boolean;
+  version: number;
+  created_by: string;
+  updated_by: string | null;
+  added_at?: string;
+  updated_at?: string;
+}
+
+// Shape callers use when creating a new tab — the DB fields we need,
+// nothing else. sourceTag/sourceColor aren't stored; they're derived
+// at read time.
+export type NewTabInput = {
+  title: string;
+  url: string;
+  favicon?: string;
+};
+
+// ---------- Small helpers ----------
 
 function defaultWorkspaceColor(): WorkspaceColor {
   return 'purple';
 }
 
-function sanitizeTab(raw: unknown): Tab | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
+function extractDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'unknown';
   }
+}
 
-  const value = raw as Record<string, unknown>;
-  const id = typeof value.id === 'string' ? value.id : crypto.randomUUID();
-  const title = typeof value.title === 'string' ? value.title : 'Untitled Tab';
-  const url = typeof value.url === 'string' ? value.url : '#';
-  const domain = typeof value.domain === 'string' ? value.domain : 'unknown';
-  const sourceTag = typeof value.sourceTag === 'string' ? value.sourceTag : 'Misc';
-  const sourceColor =
-    typeof value.sourceColor === 'string' ? (value.sourceColor as Tab['sourceColor']) : 'purple';
-  const favicon = typeof value.favicon === 'string' ? value.favicon : undefined;
+function folderColorOrDefault(raw: string | null): FolderColor {
+  const allowed: FolderColor[] = [
+    'purple', 'blue', 'red', 'orange', 'yellow', 'green', 'cyan', 'pink',
+  ];
+  return (allowed as string[]).includes(raw ?? '')
+    ? (raw as FolderColor)
+    : 'purple';
+}
 
+function tagColorFor(_domain: string): TagColor {
+  return 'purple';
+}
+
+// ---------- Row → view-model reshaping ----------
+
+function tabRowToModel(row: TabRow): Tab {
+  const domain = extractDomain(row.url);
   return {
-    id,
-    title,
-    url,
+    id: row.id,
+    title: row.title,
+    url: row.url,
     domain,
-    sourceTag,
-    sourceColor,
-    favicon,
+    favicon: row.favicon_url ?? undefined,
+    sourceTag: domain,
+    sourceColor: tagColorFor(domain),
+    folderId: row.folder_id,
+    workspaceId: row.workspace_id,
+    positionKey: row.position_key,
+    version: row.version,
   };
 }
 
-function sanitizeFolder(raw: unknown): Folder | null {
-  if (!raw || typeof raw !== 'object') {
-    return null;
-  }
-
-  const value = raw as Record<string, unknown>;
-  const id = typeof value.id === 'string' ? value.id : crypto.randomUUID();
-  const name = typeof value.name === 'string' ? value.name : 'Folder';
-  const color = typeof value.color === 'string' ? (value.color as Folder['color']) : 'purple';
-
-  const tabsRaw = Array.isArray(value.tabs) ? value.tabs : [];
-  const tabs = tabsRaw.map(sanitizeTab).filter((tab): tab is Tab => Boolean(tab));
-
-  return {
-    id,
-    name,
-    color,
-    tabCount: tabs.length,
-    tabs,
-  };
-}
-
-function toWorkspaceModel(row: WorkspaceRow): Workspace {
-  const foldersRaw = Array.isArray(row.folders) ? row.folders : [];
-  const folders = foldersRaw.map(sanitizeFolder).filter((folder): folder is Folder => Boolean(folder));
-
-  const computedTabCount = folders.reduce((sum, folder) => sum + folder.tabs.length, 0);
-
+function folderRowToModel(row: FolderRow, tabs: Tab[]): Folder {
   return {
     id: row.id,
     name: row.name,
+    color: folderColorOrDefault(row.color),
+    tabCount: tabs.length,
+    tabs,
+    workspaceId: row.workspace_id,
+    positionKey: row.position_key,
+    version: row.version,
+  };
+}
+
+function assembleWorkspace(
+  workspaceRow: WorkspaceRow,
+  folderRows: FolderRow[],
+  tabRows: TabRow[],
+): Workspace {
+  const tabsByFolder = new Map<string, Tab[]>();
+  for (const row of tabRows) {
+    const list = tabsByFolder.get(row.folder_id) ?? [];
+    list.push(tabRowToModel(row));
+    tabsByFolder.set(row.folder_id, list);
+  }
+
+  const folders = folderRows.map((row) =>
+    folderRowToModel(row, tabsByFolder.get(row.id) ?? []),
+  );
+
+  const tabCount = folders.reduce((sum, f) => sum + f.tabs.length, 0);
+
+  return {
+    id: workspaceRow.id,
+    name: workspaceRow.name,
     color: defaultWorkspaceColor(),
     folderCount: folders.length,
-    tabCount: computedTabCount,
+    tabCount,
     folders,
   };
 }
 
-async function fetchWorkspaceById(user: User, workspaceId: string): Promise<Workspace | null> {
+// ---------- Reads ----------
+
+export async function fetchWorkspaceById(
+  _user: User,
+  workspaceId: string,
+): Promise<Workspace | null> {
   const supabase = getSupabaseClient();
 
-  const { data, error } = await supabase
+  const workspaceResp = await supabase
     .from('workspaces')
-    .select('id,user_id,name,tab_count,folders,created_at')
-    .eq('user_id', user.id)
+    .select('id, user_id, name, created_at')
     .eq('id', workspaceId)
     .maybeSingle();
 
-  if (error) {
-    throw error;
-  }
+  if (workspaceResp.error) throw workspaceResp.error;
+  if (!workspaceResp.data) return null;
 
-  if (!data) {
-    return null;
-  }
+  const [foldersResp, tabsResp] = await Promise.all([
+    supabase
+      .from('custom_folders')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('is_deleted', false)
+      .order('position_key', { ascending: true }),
+    supabase
+      .from('folder_tabs')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('is_deleted', false)
+      .order('position_key', { ascending: true }),
+  ]);
 
-  return toWorkspaceModel(data as WorkspaceRow);
+  if (foldersResp.error) throw foldersResp.error;
+  if (tabsResp.error) throw tabsResp.error;
+
+  return assembleWorkspace(
+    workspaceResp.data as WorkspaceRow,
+    (foldersResp.data ?? []) as FolderRow[],
+    (tabsResp.data ?? []) as TabRow[],
+  );
 }
 
-async function persistWorkspace(user: User, workspace: Workspace): Promise<void> {
+export async function fetchWorkspaces(_user: User): Promise<Workspace[]> {
   const supabase = getSupabaseClient();
 
-  const tabCount = workspace.folders.reduce((sum, folder) => sum + folder.tabs.length, 0);
-
-  const payloadFolders = workspace.folders.map((folder) => ({
-    id: folder.id,
-    name: folder.name,
-    color: folder.color,
-    tabCount: folder.tabs.length,
-    tabs: folder.tabs,
-  }));
-
-  const { error } = await supabase
+  const workspacesResp = await supabase
     .from('workspaces')
-    .update({
-      name: workspace.name,
-      folders: payloadFolders,
-      tab_count: tabCount,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', workspace.id)
-    .eq('user_id', user.id);
+    .select('id, user_id, name, created_at')
+    .order('created_at', { ascending: true });
 
-  if (error) {
-    throw error;
+  if (workspacesResp.error) throw workspacesResp.error;
+
+  const workspaceRows = (workspacesResp.data ?? []) as WorkspaceRow[];
+  if (workspaceRows.length === 0) return [];
+
+  const workspaceIds = workspaceRows.map((w) => w.id);
+
+  const [foldersResp, tabsResp] = await Promise.all([
+    supabase
+      .from('custom_folders')
+      .select('*')
+      .in('workspace_id', workspaceIds)
+      .eq('is_deleted', false)
+      .order('position_key', { ascending: true }),
+    supabase
+      .from('folder_tabs')
+      .select('*')
+      .in('workspace_id', workspaceIds)
+      .eq('is_deleted', false)
+      .order('position_key', { ascending: true }),
+  ]);
+
+  if (foldersResp.error) throw foldersResp.error;
+  if (tabsResp.error) throw tabsResp.error;
+
+  const foldersByWorkspace = new Map<string, FolderRow[]>();
+  for (const row of (foldersResp.data ?? []) as FolderRow[]) {
+    const list = foldersByWorkspace.get(row.workspace_id) ?? [];
+    list.push(row);
+    foldersByWorkspace.set(row.workspace_id, list);
   }
+
+  const tabsByWorkspace = new Map<string, TabRow[]>();
+  for (const row of (tabsResp.data ?? []) as TabRow[]) {
+    const list = tabsByWorkspace.get(row.workspace_id) ?? [];
+    list.push(row);
+    tabsByWorkspace.set(row.workspace_id, list);
+  }
+
+  return workspaceRows.map((w) =>
+    assembleWorkspace(
+      w,
+      foldersByWorkspace.get(w.id) ?? [],
+      tabsByWorkspace.get(w.id) ?? [],
+    ),
+  );
 }
 
-export async function fetchWorkspaces(user: User): Promise<Workspace[]> {
+// ---------- Workspace writes ----------
+
+/** Returns the new workspace's id so callers can add folders/tabs to it. */
+export async function createWorkspaceRow(
+  user: User,
+  name: string,
+  _color: WorkspaceColor,
+): Promise<string> {
   const supabase = getSupabaseClient();
+
+  console.log("User passed into function:", user);
+
+const {
+  data: { user: authUser },
+} = await supabase.auth.getUser();
+
+console.log("Supabase auth user:", authUser);
+
+const {
+  data: { session },
+} = await supabase.auth.getSession();
+
+console.log("Session:", session);
 
   const { data, error } = await supabase
     .from('workspaces')
-    .select('id,user_id,name,tab_count,folders,created_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true });
+    .insert({
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      name,
+    })
+    .select('id')
+    .single();
 
-  if (error) {
-    throw error;
-  }
-
-  const rows = (data ?? []) as WorkspaceRow[];
-  return rows.map(toWorkspaceModel);
+  if (error) throw error;
+  return data.id;
 }
 
-export async function createWorkspaceRow(user: User, name: string, _color: WorkspaceColor): Promise<void> {
-  const supabase = getSupabaseClient();
-
-  const { error } = await supabase.from('workspaces').insert({
-    id: crypto.randomUUID(),
-    user_id: user.id,
-    name,
-    tab_count: 0,
-    folders: [],
-  });
-
-  if (error) {
-    throw error;
-  }
-}
-
-export async function renameWorkspaceRow(user: User, workspaceId: string, newName: string): Promise<void> {
+export async function renameWorkspaceRow(
+  _user: User,
+  workspaceId: string,
+  newName: string,
+): Promise<void> {
   const supabase = getSupabaseClient();
 
   const { error } = await supabase
     .from('workspaces')
     .update({ name: newName, updated_at: new Date().toISOString() })
-    .eq('id', workspaceId)
-    .eq('user_id', user.id);
+    .eq('id', workspaceId);
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 }
 
-export async function deleteWorkspaceRow(user: User, workspaceId: string): Promise<void> {
+export async function deleteWorkspaceRow(
+  _user: User,
+  workspaceId: string,
+): Promise<void> {
   const supabase = getSupabaseClient();
 
+  // Hard delete for now — cascades to folders/tabs via FK.
   const { error } = await supabase
     .from('workspaces')
     .delete()
-    .eq('id', workspaceId)
-    .eq('user_id', user.id);
+    .eq('id', workspaceId);
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 }
 
+// ---------- Folder writes ----------
+
+/**
+ * Insert a new folder at the end of the workspace's folder list.
+ * `lastPositionKey` is the position_key of the current last folder
+ * (null if none) — we generate a key after it. Returns { id, positionKey }
+ * so callers that need to insert tabs into the just-created folder can.
+ */
 export async function createFolderRow(
   user: User,
   workspaceId: string,
   name: string,
-  color: Folder['color'],
-  _position: number,
+  color: FolderColor,
+  lastPositionKey: string | null,
+): Promise<{ id: string; positionKey: string }> {
+  const supabase = getSupabaseClient();
+  const positionKey = generateKeyBetween(lastPositionKey, null);
+
+  const { data, error } = await supabase
+    .from('custom_folders')
+    .insert({
+      workspace_id: workspaceId,
+      created_by: user.id,
+      name,
+      color,
+      position_key: positionKey,
+    })
+    .select('id')
+    .single();
+
+  if (error) throw error;
+  return { id: data.id, positionKey };
+}
+
+export async function renameFolderRow(
+  user: User,
+  folderId: string,
+  newName: string,
+  currentVersion: number,
 ): Promise<void> {
-  const workspace = await fetchWorkspaceById(user, workspaceId);
-  if (!workspace) {
-    throw new Error('Workspace not found');
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('custom_folders')
+    .update({ name: newName, updated_by: user.id })
+    .eq('id', folderId)
+    .eq('version', currentVersion)
+    .select();
+
+  if (error) throw error;
+
+  if (!data || data.length === 0) {
+    // No rows updated — either the row is gone, or someone bumped the version
+    // before us. Not an error: realtime will bring us the winning state.
+    console.warn('[store] renameFolderRow: no rows updated (conflict or missing row)', {
+      folderId,
+      expectedVersion: currentVersion,
+    });
   }
-
-  workspace.folders.push({
-    id: crypto.randomUUID(),
-    name,
-    color,
-    tabCount: 0,
-    tabs: [],
-  });
-
-  workspace.folderCount = workspace.folders.length;
-
-  await persistWorkspace(user, workspace);
 }
 
-export async function renameFolderRow(user: User, folderId: string, newName: string): Promise<void> {
-  const workspaces = await fetchWorkspaces(user);
-  const workspace = workspaces.find((w) => w.folders.some((f) => f.id === folderId));
+/** Soft delete: sets is_deleted=true so concurrent edits don't hit FK errors. */
+// removed soft delete for now — we can re-add it later if we want to support undo. For now, just hard delete.
+export async function deleteFolderRow(
+  user: User,
+  folderId: string,
+  currentVersion: number,
+): Promise<void> {
+  const supabase = getSupabaseClient();
 
-  if (!workspace) {
-    throw new Error('Folder not found');
+  const { data, error } = await supabase
+    .from('custom_folders')
+    .update({ is_deleted: true, updated_by: user.id })
+    .eq('id', folderId)
+    .eq('version', currentVersion)
+    .select();
+
+  if (error) throw error;
+
+  if (!data || data.length === 0) {
+    console.warn('[store] deleteFolderRow: no rows updated (conflict or missing row)', {
+      folderId,
+      expectedVersion: currentVersion,
+    });
+    return; // don't cascade if the delete itself didn't apply
   }
 
-  workspace.folders = workspace.folders.map((folder) =>
-    folder.id === folderId ? { ...folder, name: newName } : folder,
-  );
+  // Cascade soft-delete to this folder's tabs. No version check on these —
+  // they weren't the direct target of the user action, they're just collateral.
+  // Phase 5b will route each tab through sync.ts individually.
+  const { error: tabsErr } = await supabase
+    .from('folder_tabs')
+    .update({ is_deleted: true, updated_by: user.id })
+    .eq('folder_id', folderId);
 
-  workspace.folderCount = workspace.folders.length;
-
-  await persistWorkspace(user, workspace);
+  if (tabsErr) throw tabsErr;
 }
 
-export async function deleteFolderRow(user: User, folderId: string): Promise<void> {
-  const workspaces = await fetchWorkspaces(user);
-  const workspace = workspaces.find((w) => w.folders.some((f) => f.id === folderId));
-
-  if (!workspace) {
-    throw new Error('Folder not found');
-  }
-
-  workspace.folders = workspace.folders.filter((folder) => folder.id !== folderId);
-  workspace.folderCount = workspace.folders.length;
-
-  await persistWorkspace(user, workspace);
-}
+// ---------- Tab writes ----------
 
 export async function createTabRow(
   user: User,
   workspaceId: string,
   folderId: string,
-  tab: Omit<Tab, 'id'>,
-  _position: number,
+  tab: NewTabInput,
+  lastPositionKey: string | null,
+): Promise<{ id: string; positionKey: string }> {
+  const supabase = getSupabaseClient();
+  const positionKey = generateKeyBetween(lastPositionKey, null);
+
+  const { data, error } = await supabase
+    .from('folder_tabs')
+    .insert({
+      workspace_id: workspaceId,
+      folder_id: folderId,
+      created_by: user.id,
+      title: tab.title || 'Untitled',
+      url: tab.url,
+      favicon_url: tab.favicon ?? null,
+      position_key: positionKey,
+    })
+    .select('id')
+    .single();
+
+  if (error) throw error;
+  return { id: data.id, positionKey };
+}
+
+// export async function deleteTabRow(
+//   _user: User,
+//   tabId: string,
+// ): Promise<void> {
+//   const supabase = getSupabaseClient();
+//   const { error } = await supabase
+//     .from('folder_tabs')
+//     .delete()
+//     .eq('id', tabId);
+//   if (error) throw error;
+// }
+
+export async function deleteTabRow(
+  user: User,
+  tabId: string,
+  currentVersion: number,
 ): Promise<void> {
-  const workspace = await fetchWorkspaceById(user, workspaceId);
-  if (!workspace) {
-    throw new Error('Workspace not found');
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('folder_tabs')
+    .update({ is_deleted: true, updated_by: user.id })
+    .eq('id', tabId)
+    .eq('version', currentVersion)
+    .select();
+
+  if (error) throw error;
+
+  if (!data || data.length === 0) {
+    console.warn('[store] deleteTabRow: no rows updated (conflict or missing row)', {
+      tabId,
+      expectedVersion: currentVersion,
+    });
   }
-
-  workspace.folders = workspace.folders.map((folder) => {
-    if (folder.id !== folderId) {
-      return folder;
-    }
-
-    const tabs = [...folder.tabs, { ...tab, id: crypto.randomUUID() }];
-    return { ...folder, tabs, tabCount: tabs.length };
-  });
-
-  await persistWorkspace(user, workspace);
 }
 
-export async function deleteTabRow(user: User, tabId: string): Promise<void> {
-  const workspaces = await fetchWorkspaces(user);
-  const workspace = workspaces.find((w) => w.folders.some((f) => f.tabs.some((t) => t.id === tabId)));
-
-  if (!workspace) {
-    throw new Error('Tab not found');
-  }
-
-  workspace.folders = workspace.folders.map((folder) => {
-    const tabs = folder.tabs.filter((tab) => tab.id !== tabId);
-    return { ...folder, tabs, tabCount: tabs.length };
-  });
-
-  await persistWorkspace(user, workspace);
-}
+// ---------- Bulk-replace / clustering — still stubbed ----------
+//
+// These do bulk delete-then-insert. Doing that without transactions
+// or sync.ts is fragile (partial failure leaves the workspace in a
+// broken state). Build these after sync.ts lands so we can batch
+// mutations properly and roll back on error.
 
 export async function replaceWorkspaceFoldersAndTabs(
-  user: User,
-  workspaceId: string,
-  folders: Folder[],
+  _user: User,
+  _workspaceId: string,
+  _folders: Folder[],
 ): Promise<void> {
-  const workspace = await fetchWorkspaceById(user, workspaceId);
-  if (!workspace) {
-    throw new Error('Workspace not found');
-  }
-
-  workspace.folders = folders.map((folder) => ({
-    ...folder,
-    tabCount: folder.tabs.length,
-  }));
-  workspace.folderCount = workspace.folders.length;
-
-  await persistWorkspace(user, workspace);
+  throw new Error(
+    '[store.ts] replaceWorkspaceFoldersAndTabs is disabled — clustering ' +
+    'will be rebuilt on top of sync.ts. Use saveCurrentTabsAsWorkspace or ' +
+    'create folders/tabs individually for now.',
+  );
 }

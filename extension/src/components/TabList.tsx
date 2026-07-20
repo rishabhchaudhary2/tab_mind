@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import type { Tab } from '../types';
+import type { Tab } from '../types/index';
 import { ContextMenu } from './ContextMenu';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 

@@ -36,10 +36,14 @@ export interface Folder {
   tabCount: number;
   tabs: Tab[];
 
-  // ---- Fields added for collaboration ----
+  // Collaboration
   workspaceId: string;
   positionKey: string;
   version: number;
+
+  // Nesting
+  parentFolderId: string | null;   // null → root folder in the workspace
+  children: Folder[];              // sub-folders, ordered by positionKey
 }
 
 export interface Workspace {

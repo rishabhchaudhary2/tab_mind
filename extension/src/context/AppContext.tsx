@@ -91,6 +91,65 @@ const folderColorOptions: Folder['color'][] = [
   'pink',
 ];
 
+// nested folders functions 
+// Walk the tree recursively, returning the folder with the given id, or null.
+function findFolderInTree(folders: Folder[], id: string): Folder | null {
+  for (const f of folders) {
+    if (f.id === id) return f;
+    const nested = findFolderInTree(f.children, id);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+// Return a new tree with `updater` applied to any folder matching `predicate`.
+// If `predicate` never matches, returns an equivalent tree (safe to no-op).
+function updateFolderInTree(
+  folders: Folder[],
+  predicate: (f: Folder) => boolean,
+  updater: (f: Folder) => Folder,
+): Folder[] {
+  return folders.map((f) => {
+    if (predicate(f)) {
+      const updated = updater(f);
+      // Also recurse into children in case updater didn't touch them.
+      return { ...updated, children: updateFolderInTree(updated.children, predicate, updater) };
+    }
+    return { ...f, children: updateFolderInTree(f.children, predicate, updater) };
+  });
+}
+
+// Remove any folder matching `predicate` from the tree (cascades to their children implicitly).
+function removeFolderFromTree(folders: Folder[], predicate: (f: Folder) => boolean): Folder[] {
+  const kept: Folder[] = [];
+  for (const f of folders) {
+    if (predicate(f)) continue;  // drop this folder (and its whole subtree)
+    kept.push({ ...f, children: removeFolderFromTree(f.children, predicate) });
+  }
+  return kept;
+}
+
+// Insert a folder at the right place in the tree, based on its parentFolderId.
+// If parentFolderId is null, adds to root. Otherwise finds the parent and appends
+// to its children. Sorted afterward by positionKey.
+function insertFolderIntoTree(folders: Folder[], toInsert: Folder): Folder[] {
+  if (toInsert.parentFolderId === null) {
+    const others = folders.filter((f) => f.id !== toInsert.id);
+    const result = [...others, toInsert];
+    return result.sort((a, b) => a.positionKey.localeCompare(b.positionKey));
+  }
+
+  return folders.map((f) => {
+    if (f.id === toInsert.parentFolderId) {
+      const others = f.children.filter((c) => c.id !== toInsert.id);
+      const children = [...others, toInsert].sort((a, b) => a.positionKey.localeCompare(b.positionKey));
+      return { ...f, children };
+    }
+    return { ...f, children: insertFolderIntoTree(f.children, toInsert) };
+  });
+}
+
+
 export function AppProvider({ children }: { children: ReactNode }) {
 
   const [myRoles, setMyRoles] = useState<Record<string, 'owner' | 'editor' | 'viewer'>>({});
@@ -170,21 +229,23 @@ useEffect(() => {
 
   joinWorkspace(activeWorkspace.id);
 
- const unsubFolder = onFolderChange((change) => {
-  if (change.isOwnWrite) return; // handled by our own optimistic path later
+const unsubFolder = onFolderChange((change) => {
+  if (change.isOwnWrite) return;
 
-  setWorkspaces((prev) => {
-    return prev.map((ws) => {
+  setWorkspaces((prev) =>
+    prev.map((ws) => {
       if (ws.id !== change.row.workspace_id) return ws;
 
+      // DELETE or soft-delete: remove from tree entirely.
       if (change.eventType === 'DELETE' || change.row.is_deleted) {
-        // Remove the folder from state
-        const folders = ws.folders.filter((f) => f.id !== change.row.id);
-        return { ...ws, folders, folderCount: folders.length };
+        const folders = removeFolderFromTree(ws.folders, (f) => f.id === change.row.id);
+        return { ...ws, folders };
       }
 
-      // INSERT or UPDATE — upsert into folders, sorted by positionKey
-      const existing = ws.folders.find((f) => f.id === change.row.id);
+      const existing = findFolderInTree(ws.folders, change.row.id);
+
+      // Build the folder object from the incoming row, preserving children/tabs
+      // if we already had them (they aren't in this event).
       const nextFolder: Folder = {
         id: change.row.id,
         name: change.row.name,
@@ -194,26 +255,40 @@ useEffect(() => {
         workspaceId: change.row.workspace_id,
         positionKey: change.row.position_key,
         version: change.row.version,
+        parentFolderId: (change.row as { parent_folder_id?: string | null }).parent_folder_id ?? null,
+        children: existing?.children ?? [],
       };
 
-      const others = ws.folders.filter((f) => f.id !== change.row.id);
-      const folders = [...others, nextFolder].sort((a, b) =>
-        a.positionKey.localeCompare(b.positionKey),
-      );
-      return { ...ws, folders, folderCount: folders.length };
-    });
-  });
+      if (existing && existing.parentFolderId === nextFolder.parentFolderId) {
+        // In-place update: parent didn't change, just patch the fields.
+        const folders = updateFolderInTree(
+          ws.folders,
+          (f) => f.id === change.row.id,
+          () => nextFolder,
+        );
+        return { ...ws, folders };
+      }
+
+      // Either brand-new folder (INSERT) or a folder that moved to a different parent.
+      // Remove it from wherever it was, then insert at the right place.
+      const withoutOld = removeFolderFromTree(ws.folders, (f) => f.id === change.row.id);
+      const folders = insertFolderIntoTree(withoutOld, nextFolder);
+      return { ...ws, folders };
+    }),
+  );
 });
 
 const unsubTab = onTabChange((change) => {
   if (change.isOwnWrite) return;
 
-  setWorkspaces((prev) => {
-    return prev.map((ws) => {
+  setWorkspaces((prev) =>
+    prev.map((ws) => {
       if (ws.id !== change.row.workspace_id) return ws;
 
-      const folders = ws.folders.map((f) => {
-        if (f.id !== change.row.folder_id) return f;
+      const applyToFolder = (f: Folder): Folder => {
+        if (f.id !== change.row.folder_id) {
+          return { ...f, children: f.children.map(applyToFolder) };
+        }
 
         if (change.eventType === 'DELETE' || change.row.is_deleted) {
           const tabs = f.tabs.filter((t) => t.id !== change.row.id);
@@ -242,23 +317,15 @@ const unsubTab = onTabChange((change) => {
           a.positionKey.localeCompare(b.positionKey),
         );
         return { ...f, tabs, tabCount: tabs.length };
-      });
-
-      return {
-        ...ws,
-        folders,
-        tabCount: folders.reduce((sum, f) => sum + f.tabs.length, 0),
       };
-    });
-  });
 
-  // If the active folder is the one that just changed, refresh the
-  // activeFolder reference so the TabList re-renders.
+      return { ...ws, folders: ws.folders.map(applyToFolder) };
+    }),
+  );
+
   setActiveFolder((prev) => {
     if (!prev || prev.id !== change.row.folder_id) return prev;
-    // We'll refresh via the workspaces update below on the next render.
-    // Force a fresh reference by shallow-copying:
-    return { ...prev };
+    return { ...prev };  // force TabList re-render
   });
 });
 

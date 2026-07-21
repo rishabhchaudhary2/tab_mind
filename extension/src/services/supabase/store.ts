@@ -31,6 +31,7 @@ interface WorkspaceRow {
 interface FolderRow {
   id: string;
   workspace_id: string;
+  parent_folder_id: string | null;   // add this
   name: string;
   color: string | null;
   icon: string | null;
@@ -113,7 +114,6 @@ function tabRowToModel(row: TabRow): Tab {
     version: row.version,
   };
 }
-
 function folderRowToModel(row: FolderRow, tabs: Tab[]): Folder {
   return {
     id: row.id,
@@ -124,6 +124,8 @@ function folderRowToModel(row: FolderRow, tabs: Tab[]): Folder {
     workspaceId: row.workspace_id,
     positionKey: row.position_key,
     version: row.version,
+    parentFolderId: row.parent_folder_id,
+    children: [],  // filled in during tree assembly
   };
 }
 
@@ -132,6 +134,7 @@ function assembleWorkspace(
   folderRows: FolderRow[],
   tabRows: TabRow[],
 ): Workspace {
+  // Bucket tabs by folder_id so we can attach them in one pass.
   const tabsByFolder = new Map<string, Tab[]>();
   for (const row of tabRows) {
     const list = tabsByFolder.get(row.folder_id) ?? [];
@@ -139,19 +142,55 @@ function assembleWorkspace(
     tabsByFolder.set(row.folder_id, list);
   }
 
-  const folders = folderRows.map((row) =>
-    folderRowToModel(row, tabsByFolder.get(row.id) ?? []),
-  );
+  // First pass: create all Folder objects with their tabs, no children linked yet.
+  const foldersById = new Map<string, Folder>();
+  for (const row of folderRows) {
+    const folder = folderRowToModel(row, tabsByFolder.get(row.id) ?? []);
+    foldersById.set(row.id, folder);
+  }
 
-  const tabCount = folders.reduce((sum, f) => sum + f.tabs.length, 0);
+  // Second pass: link each folder into its parent's children[], or collect as root
+  // if it has no parent. Root folders (parentFolderId === null) go directly on
+  // workspace.folders.
+  const rootFolders: Folder[] = [];
+  for (const folder of foldersById.values()) {
+    if (folder.parentFolderId === null) {
+      rootFolders.push(folder);
+    } else {
+      const parent = foldersById.get(folder.parentFolderId);
+      if (parent) {
+        parent.children.push(folder);
+      } else {
+        // Orphan: parent doesn't exist (shouldn't happen with FK constraint,
+        // but could happen mid-write during a delete). Treat as root.
+        rootFolders.push(folder);
+      }
+    }
+  }
+
+  // Sort every folder's children by position_key. Same for root.
+  const sortByPosition = (a: Folder, b: Folder) => a.positionKey.localeCompare(b.positionKey);
+  rootFolders.sort(sortByPosition);
+  for (const folder of foldersById.values()) {
+    folder.children.sort(sortByPosition);
+  }
+
+  // Total tab count: walk the whole tree.
+  const countTabsRecursive = (folders: Folder[]): number => {
+    let total = 0;
+    for (const f of folders) {
+      total += f.tabs.length + countTabsRecursive(f.children);
+    }
+    return total;
+  };
 
   return {
     id: workspaceRow.id,
     name: workspaceRow.name,
     color: defaultWorkspaceColor(),
-    folderCount: folders.length,
-    tabCount,
-    folders,
+    folderCount: foldersById.size,
+    tabCount: countTabsRecursive(rootFolders),
+    folders: rootFolders,
   };
 }
 
@@ -335,6 +374,7 @@ export async function createFolderRow(
   name: string,
   color: FolderColor,
   lastPositionKey: string | null,
+  parentFolderId: string | null = null,  // ← new parameter, defaults to root
 ): Promise<{ id: string; positionKey: string }> {
   const supabase = getSupabaseClient();
   const positionKey = generateKeyBetween(lastPositionKey, null);
@@ -343,6 +383,7 @@ export async function createFolderRow(
     .from('custom_folders')
     .insert({
       workspace_id: workspaceId,
+      parent_folder_id: parentFolderId,
       created_by: user.id,
       name,
       color,
